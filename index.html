@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chatroom Web</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          animation: {
+            'fade-in': 'fadeIn 0.3s ease-out',
+            'fade-in-up': 'fadeInUp 0.4s ease-out',
+            'fade-in-down': 'fadeInDown 0.3s ease-out',
+            'slide-in-left': 'slideInLeft 0.3s ease-out',
+            'slide-in-right': 'slideInRight 0.3s ease-out',
+            'scale-in': 'scaleIn 0.2s ease-out',
+            'bounce-in': 'bounceIn 0.5s ease-out',
+            'pulse-slow': 'pulse 3s infinite',
+          },
+          keyframes: {
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+            fadeInUp: {
+              '0%': { opacity: '0', transform: 'translateY(20px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+            fadeInDown: {
+              '0%': { opacity: '0', transform: 'translateY(-20px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+            slideInLeft: {
+              '0%': { opacity: '0', transform: 'translateX(-20px)' },
+              '100%': { opacity: '1', transform: 'translateX(0)' },
+            },
+            slideInRight: {
+              '0%': { opacity: '0', transform: 'translateX(20px)' },
+              '100%': { opacity: '1', transform: 'translateX(0)' },
+            },
+            scaleIn: {
+              '0%': { opacity: '0', transform: 'scale(0.9)' },
+              '100%': { opacity: '1', transform: 'scale(1)' },
+            },
+            bounceIn: {
+              '0%': { opacity: '0', transform: 'scale(0.3)' },
+              '50%': { transform: 'scale(1.05)' },
+              '70%': { transform: 'scale(0.9)' },
+              '100%': { opacity: '1', transform: 'scale(1)' },
+            },
+          },
+        },
+      },
+    }
+  </script>
+  <link rel="icon" href="data:,">
+  <style>
+    .message-appear {
+      animation: fadeInUp 0.3s ease-out;
+    }
+    .btn-hover {
+      transition: all 0.2s ease;
+    }
+    .btn-hover:hover {
+      transform: translateY(-1px);
+    }
+    .btn-hover:active {
+      transform: translateY(0);
+    }
+    .panel-slide {
+      animation: slideInLeft 0.3s ease-out;
+    }
+    .card-appear {
+      animation: scaleIn 0.3s ease-out;
+    }
+    .timer-pulse {
+      animation: pulse 2s infinite;
+    }
+    /* Mobile responsive styles */
+    @media (max-width: 640px) {
+      .mobile-full-height {
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        border-radius: 0 !important;
+      }
+      .mobile-header {
+        padding: 0.75rem !important;
+      }
+      .mobile-header-buttons {
+        gap: 0.25rem !important;
+      }
+      .mobile-header-buttons button {
+        padding: 0.5rem !important;
+        font-size: 0.75rem !important;
+      }
+      .mobile-p-4 {
+        padding: 1rem !important;
+      }
+      .mobile-text-sm {
+        font-size: 0.875rem !important;
+      }
+    }
+  </style>
+</head>
+<body class="overflow-hidden">
+  <div id="root" class="h-full"></div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+  <script>
+    // ========================================
+    // FIREBASE CONFIGURATION
+    // ========================================
+    // To make the chat work online, create a free Firebase project:
+    // 1. Go to https://console.firebase.google.com/
+    // 2. Click "Create Project" (or "Add Project")
+    // 3. Give it a name and continue
+    // 4. Go to "Build" -> "Realtime Database" in the left menu
+    // 5. Click "Create Database", choose location, start in TEST MODE
+    // 6. Go to Project Settings (gear icon) -> General -> Your apps
+    // 7. Click the web icon (</>) to add a web app
+    // 8. Copy the firebaseConfig object and paste it below
+    // ========================================
+    
+    const firebaseConfig = {
+      // PASTE YOUR FIREBASE CONFIG HERE:
+      // apiKey: "your-api-key",
+      // authDomain: "your-project.firebaseapp.com",
+      // databaseURL: "https://your-project-default-rtdb.firebaseio.com",
+      // projectId: "your-project",
+      // storageBucket: "your-project.appspot.com",
+      // messagingSenderId: "123456789",
+      // appId: "your-app-id"
+    };
+
+    // Check if Firebase is configured
+    const isFirebaseConfigured = firebaseConfig.apiKey && firebaseConfig.databaseURL;
+    
+    let database = null;
+    if (isFirebaseConfigured) {
+      try {
+        firebase.initializeApp(firebaseConfig);
+        database = firebase.database();
+        console.log('✅ Firebase connected - Online mode active');
+      } catch (error) {
+        console.error('Firebase initialization error:', error);
+      }
+    } else {
+      console.log('⚠️ Firebase not configured - Using local storage (offline mode)');
+      console.log('To enable online chat, add your Firebase config in the HTML file');
+    }
+
+    // Storage abstraction - uses Firebase if available, otherwise localStorage
+    window.storage = {
+      list: async (prefix) => {
+        if (database) {
+          try {
+            const snapshot = await database.ref(prefix.replace(':', '/')).once('value');
+            const data = snapshot.val();
+            if (data) {
+              return { keys: Object.keys(data).map(k => prefix + k) };
+            }
+            return { keys: [] };
+          } catch (error) {
+            console.error('Firebase list error:', error);
+            return { keys: [] };
+          }
+        } else {
+          const keys = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(prefix)) keys.push(key);
+          }
+          return { keys };
+        }
+      },
+      get: async (key) => {
+        if (database) {
+          try {
+            const path = key.replace(':', '/');
+            const snapshot = await database.ref(path).once('value');
+            const value = snapshot.val();
+            return value !== null ? { value: JSON.stringify(value) } : null;
+          } catch (error) {
+            console.error('Firebase get error:', error);
+            return null;
+          }
+        } else {
+          const value = localStorage.getItem(key);
+          return value !== null ? { value } : null;
+        }
+      },
+      set: async (key, value) => {
+        if (database) {
+          try {
+            const path = key.replace(':', '/');
+            await database.ref(path).set(JSON.parse(value));
+          } catch (error) {
+            console.error('Firebase set error:', error);
+          }
+        } else {
+          localStorage.setItem(key, value);
+        }
+      },
+      delete: async (key) => {
+        if (database) {
+          try {
+            const path = key.replace(':', '/');
+            await database.ref(path).remove();
+          } catch (error) {
+            console.error('Firebase delete error:', error);
+          }
+        } else {
+          localStorage.removeItem(key);
+        }
+      }
+    };
+  </script>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Admin credentials
+    const ADMIN_USERNAME = 'admin1945';
+    const ADMIN_PASSWORD = 'test123';
+
+    function ChatroomApp() {
+      const [currentUser, setCurrentUser] = useState(null);
+      const [isAdmin, setIsAdmin] = useState(false);
+      const [username, setUsername] = useState('');
+      const [password, setPassword] = useState('');
+      const [showPasswordInput, setShowPasswordInput] = useState(false);
+      const [messages, setMessages] = useState([]);
+      const [newMessage, setNewMessage] = useState('');
+      const [loading, setLoading] = useState(true);
+      const [currentView, setCurrentView] = useState('chat'); // 'chat' or 'quiz'
+      const [loginError, setLoginError] = useState('');
+      const [unreadMessages, setUnreadMessages] = useState(0);
+      const [lastSeenMessageCount, setLastSeenMessageCount] = useState(0);
+      const [onlineUsers, setOnlineUsers] = useState([]);
+      const [showAdminPanel, setShowAdminPanel] = useState(false);
+      const [adminMessage, setAdminMessage] = useState('');
+      const [selectedUser, setSelectedUser] = useState(null);
+      const [adminPopup, setAdminPopup] = useState(null);
+      const [kickedOut, setKickedOut] = useState(false);
+      const [kickCooldown, setKickCooldown] = useState(0);
+      const messagesEndRef = useRef(null);
+
+      // Cooldown timer effect
+      useEffect(() => {
+        if (kickCooldown > 0) {
+          const timer = setInterval(() => {
+            setKickCooldown(prev => {
+              if (prev <= 1) {
+                setKickedOut(false);
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+          return () => clearInterval(timer);
+        }
+      }, [kickCooldown]);
+
+      // Check for existing cooldown on mount
+      useEffect(() => {
+        const checkCooldown = async () => {
+          const cooldownData = localStorage.getItem('kickCooldown');
+          if (cooldownData) {
+            const { until } = JSON.parse(cooldownData);
+            const remaining = Math.floor((until - Date.now()) / 1000);
+            if (remaining > 0) {
+              setKickedOut(true);
+              setKickCooldown(remaining);
+            } else {
+              localStorage.removeItem('kickCooldown');
+            }
+          }
+        };
+        checkCooldown();
+      }, []);
+
+      const scrollToBottom = () => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      };
+
+      useEffect(() => {
+        scrollToBottom();
+      }, [messages]);
+
+      // Nachrichten beim Start laden
+      useEffect(() => {
+        loadMessages();
+      }, []);
+
+      // Auto-Refresh alle 2 Sekunden
+      useEffect(() => {
+        if (currentUser) {
+          const interval = setInterval(() => {
+            loadMessages();
+            loadOnlineUsers();
+            checkForAdminMessages();
+            checkIfKicked();
+            // Keep user active by updating timestamp
+            registerUser(currentUser);
+          }, 2000);
+          return () => clearInterval(interval);
+        }
+      }, [currentUser]);
+
+      // Track unread messages when in quiz view
+      useEffect(() => {
+        if (currentView === 'quiz' && currentUser) {
+          const userMessages = messages.filter(m => m.type === 'user' && m.user !== currentUser);
+          const newMsgCount = userMessages.length;
+          if (newMsgCount > lastSeenMessageCount) {
+            setUnreadMessages(newMsgCount - lastSeenMessageCount);
+          }
+        }
+      }, [messages, currentView, currentUser, lastSeenMessageCount]);
+
+      // Reset unread when switching to chat
+      useEffect(() => {
+        if (currentView === 'chat') {
+          const userMessages = messages.filter(m => m.type === 'user' && m.user !== currentUser);
+          setLastSeenMessageCount(userMessages.length);
+          setUnreadMessages(0);
+        }
+      }, [currentView, messages, currentUser]);
+
+      const checkForAdminMessages = async () => {
+        if (!currentUser || isAdmin) return;
+        try {
+          const msgKey = `adminmsg:${currentUser.toLowerCase()}`;
+          const data = await window.storage.get(msgKey, true);
+          if (data) {
+            const msg = JSON.parse(data.value);
+            setAdminPopup(msg);
+            await window.storage.delete(msgKey, true);
+          }
+        } catch (error) {
+          console.log('Keine Admin-Nachricht');
+        }
+      };
+
+      const checkIfKicked = async () => {
+        if (!currentUser || isAdmin) return;
+        try {
+          const kickKey = `kicked:${currentUser.toLowerCase()}`;
+          const data = await window.storage.get(kickKey, true);
+          if (data) {
+            await window.storage.delete(kickKey, true);
+            await unregisterUser(currentUser);
+            // Set 5 minute cooldown (300 seconds)
+            const cooldownUntil = Date.now() + (5 * 60 * 1000);
+            localStorage.setItem('kickCooldown', JSON.stringify({ until: cooldownUntil }));
+            setKickCooldown(300);
+            setKickedOut(true);
+            setCurrentUser(null);
+            setUsername('');
+          }
+        } catch (error) {
+          console.log('Kick check error');
+        }
+      };
+
+      const loadOnlineUsers = async () => {
+        try {
+          const result = await window.storage.list('activeuser:', true);
+          if (result && result.keys) {
+            const userPromises = result.keys.map(async (key) => {
+              const data = await window.storage.get(key, true);
+              if (data) {
+                const user = JSON.parse(data.value);
+                // Check if user is stale (inactive for more than 10 seconds)
+                const lastActive = new Date(user.timestamp).getTime();
+                const now = Date.now();
+                if (now - lastActive > 10000) {
+                  // Remove stale user
+                  await window.storage.delete(key, true);
+                  return null;
+                }
+                return user;
+              }
+              return null;
+            });
+            const users = await Promise.all(userPromises);
+            setOnlineUsers(users.filter(u => u !== null));
+          }
+        } catch (error) {
+          console.log('Fehler beim Laden der Online-Benutzer');
+        }
+      };
+
+      const loadMessages = async () => {
+        try {
+          const result = await window.storage.list('msg:', true);
+          if (result && result.keys) {
+            const msgPromises = result.keys.map(async (key) => {
+              const data = await window.storage.get(key, true);
+              if (data) {
+                const msg = JSON.parse(data.value);
+                msg.msgKey = key;
+                return msg;
+              }
+              return null;
+            });
+            const loadedMessages = await Promise.all(msgPromises);
+            const validMessages = loadedMessages.filter(m => m !== null);
+            validMessages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            setMessages(validMessages);
+          }
+        } catch (error) {
+          console.log('Keine Nachrichten vorhanden oder Ladefehler');
+          setMessages([]);
+        }
+        setLoading(false);
+      };
+
+      const saveMessage = async (message) => {
+        try {
+          const msgId = `msg:${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          await window.storage.set(msgId, JSON.stringify(message), true);
+          await loadMessages();
+        } catch (error) {
+          console.error('Fehler beim Speichern:', error);
+        }
+      };
+
+      // Get list of active users
+      const getActiveUsers = async () => {
+        try {
+          const result = await window.storage.list('activeuser:', true);
+          if (result && result.keys) {
+            const userPromises = result.keys.map(async (key) => {
+              const data = await window.storage.get(key, true);
+              return data ? JSON.parse(data.value) : null;
+            });
+            const users = await Promise.all(userPromises);
+            return users.filter(u => u !== null).map(u => u.name.toLowerCase());
+          }
+        } catch (error) {
+          console.log('Fehler beim Laden der aktiven Benutzer');
+        }
+        return [];
+      };
+
+      const registerUser = async (name) => {
+        try {
+          const userId = `activeuser:${name.toLowerCase()}`;
+          await window.storage.set(userId, JSON.stringify({ name, timestamp: new Date().toISOString() }), true);
+        } catch (error) {
+          console.error('Fehler beim Registrieren:', error);
+        }
+      };
+
+      const unregisterUser = async (name) => {
+        try {
+          const userId = `activeuser:${name.toLowerCase()}`;
+          await window.storage.delete(userId, true);
+        } catch (error) {
+          console.error('Fehler beim Abmelden:', error);
+        }
+      };
+
+      const handleLogin = async () => {
+        if (username.trim()) {
+          const name = username.trim();
+          setLoginError('');
+          
+          // Check if this is admin trying to login
+          if (name.toLowerCase() === ADMIN_USERNAME.toLowerCase()) {
+            if (!showPasswordInput) {
+              setShowPasswordInput(true);
+              return;
+            }
+            // Verify password
+            if (password !== ADMIN_PASSWORD) {
+              setLoginError('Falsches Passwort.');
+              return;
+            }
+            setIsAdmin(true);
+          }
+          
+          // Check if username is already taken
+          const activeUsers = await getActiveUsers();
+          if (activeUsers.includes(name.toLowerCase())) {
+            setLoginError('Dieser Benutzername ist bereits vergeben.');
+            return;
+          }
+
+          await registerUser(name);
+          setCurrentUser(name);
+          const systemMsg = {
+            type: 'system',
+            text: `${name} hat den Chat betreten`,
+            timestamp: new Date().toISOString()
+          };
+          await saveMessage(systemMsg);
+          setShowPasswordInput(false);
+          setPassword('');
+        }
+      };
+
+      const handleLoginKeyDown = (e) => {
+        if (e.key === 'Enter') {
+          handleLogin();
+        }
+      };
+
+      const handleLogout = async () => {
+        const systemMsg = {
+          type: 'system',
+          text: `${currentUser} hat den Chat verlassen`,
+          timestamp: new Date().toISOString()
+        };
+        await saveMessage(systemMsg);
+        await unregisterUser(currentUser);
+        setCurrentUser(null);
+        setUsername('');
+        setCurrentView('chat');
+        setIsAdmin(false);
+        setShowAdminPanel(false);
+      };
+
+      const handleSendMessage = async () => {
+        if (newMessage.trim() && currentUser) {
+          const message = {
+            type: 'user',
+            user: currentUser,
+            text: newMessage.trim(),
+            timestamp: new Date().toISOString()
+          };
+          await saveMessage(message);
+          setNewMessage('');
+        }
+      };
+
+      const handleMessageKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSendMessage();
+        }
+      };
+
+      const handleClearHistory = async () => {
+        if (window.confirm('Möchtest du wirklich alle Nachrichten löschen?')) {
+          try {
+            const result = await window.storage.list('msg:', true);
+            if (result && result.keys) {
+              for (const key of result.keys) {
+                await window.storage.delete(key, true);
+              }
+            }
+            setMessages([]);
+          } catch (error) {
+            console.error('Fehler beim Löschen:', error);
+          }
+        }
+      };
+
+      // Admin functions
+      const handleDeleteMessage = async (msgKey) => {
+        try {
+          await window.storage.delete(msgKey, true);
+          await loadMessages();
+        } catch (error) {
+          console.error('Fehler beim Löschen der Nachricht:', error);
+        }
+      };
+
+      const handleKickUser = async (userName) => {
+        try {
+          const kickKey = `kicked:${userName.toLowerCase()}`;
+          await window.storage.set(kickKey, JSON.stringify({ kicked: true, by: currentUser }), true);
+          const systemMsg = {
+            type: 'system',
+            text: `${userName} wurde vom Admin gekickt`,
+            timestamp: new Date().toISOString()
+          };
+          await saveMessage(systemMsg);
+        } catch (error) {
+          console.error('Fehler beim Kicken:', error);
+        }
+      };
+
+      const handleSendAdminMessage = async (targetUser) => {
+        if (!adminMessage.trim()) return;
+        try {
+          const msgKey = `adminmsg:${targetUser.toLowerCase()}`;
+          await window.storage.set(msgKey, JSON.stringify({ 
+            text: adminMessage, 
+            from: 'Admin',
+            timestamp: new Date().toISOString()
+          }), true);
+          setAdminMessage('');
+          setSelectedUser(null);
+        } catch (error) {
+          console.error('Fehler beim Senden der Admin-Nachricht:', error);
+        }
+      };
+
+      const handleBroadcastMessage = async () => {
+        if (!adminMessage.trim()) return;
+        try {
+          for (const user of onlineUsers) {
+            if (user.name.toLowerCase() !== currentUser.toLowerCase()) {
+              const msgKey = `adminmsg:${user.name.toLowerCase()}`;
+              await window.storage.set(msgKey, JSON.stringify({ 
+                text: adminMessage, 
+                from: 'Admin (Broadcast)',
+                timestamp: new Date().toISOString()
+              }), true);
+            }
+          }
+          setAdminMessage('');
+        } catch (error) {
+          console.error('Fehler beim Broadcast:', error);
+        }
+      };
+
+      const handleClearQuizResults = async () => {
+        if (window.confirm('Möchtest du wirklich alle Quiz-Ergebnisse löschen?')) {
+          try {
+            const result = await window.storage.list('quiz:', true);
+            if (result && result.keys) {
+              for (const key of result.keys) {
+                await window.storage.delete(key, true);
+              }
+            }
+          } catch (error) {
+            console.error('Fehler beim Löschen der Quiz-Ergebnisse:', error);
+          }
+        }
+      };
+
+      const formatTime = (timestamp) => {
+        const date = new Date(timestamp);
+        return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      };
+
+      if (loading) {
+        return (
+          <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+            <div className="text-gray-600 text-xl">Lädt...</div>
+          </div>
+        );
+      }
+
+      // Format cooldown time
+      const formatCooldown = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      };
+
+      // Kicked out screen with cooldown
+      if (kickedOut) {
+        return (
+          <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md border border-gray-200 text-center animate-bounce-in">
+              <div className="text-4xl mb-4 animate-bounce">🚫</div>
+              <h1 className="text-xl font-semibold text-gray-800 mb-4">
+                Du wurdest gekickt
+              </h1>
+              {kickCooldown > 0 ? (
+                <>
+                  <div className="text-6xl font-mono font-bold text-gray-900 mb-4 timer-pulse">
+                    {formatCooldown(kickCooldown)}
+                  </div>
+                  <p className="text-gray-500 text-sm">
+                    Warte bis der Timer abgelaufen ist
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-gray-500 mb-6 text-sm">
+                    Du kannst jetzt wieder beitreten.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setKickedOut(false);
+                      localStorage.removeItem('kickCooldown');
+                    }}
+                    className="w-full bg-gray-900 hover:bg-gray-800 text-white font-medium py-3 rounded-lg transition"
+                  >
+                    Zurück zum Login
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Admin message popup for regular users
+      if (adminPopup) {
+        return (
+          <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md border border-gray-200 animate-bounce-in">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="bg-red-100 text-red-800 text-xs px-2 py-1 rounded font-medium animate-pulse">
+                  {adminPopup.from}
+                </span>
+              </div>
+              <p className="text-gray-800 mb-6 animate-fade-in">{adminPopup.text}</p>
+              <button
+                onClick={() => setAdminPopup(null)}
+                className="w-full bg-gray-900 hover:bg-gray-800 text-white font-medium py-3 rounded-lg transition btn-hover"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      if (!currentUser) {
+        return (
+          <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 w-full max-w-md border border-gray-200 animate-fade-in-up">
+              <h1 className="text-xl sm:text-2xl font-semibold text-center text-gray-800 mb-2">
+                Chatroom
+              </h1>
+              <p className="text-center text-gray-500 mb-4 sm:mb-6 text-xs sm:text-sm">
+                Gib deinen Benutzernamen ein um beizutreten
+              </p>
+              <div>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    setLoginError('');
+                    if (e.target.value.toLowerCase() !== ADMIN_USERNAME.toLowerCase()) {
+                      setShowPasswordInput(false);
+                      setPassword('');
+                    }
+                  }}
+                  onKeyDown={handleLoginKeyDown}
+                  placeholder="Benutzername..."
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-500 transition mb-2"
+                  maxLength={20}
+                />
+                {showPasswordInput && (
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setLoginError('');
+                    }}
+                    onKeyDown={handleLoginKeyDown}
+                    placeholder="Admin Passwort..."
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-500 transition mb-2"
+                  />
+                )}
+                {loginError && (
+                  <p className="text-red-500 text-sm mb-2">{loginError}</p>
+                )}
+                <button
+                  onClick={handleLogin}
+                  className="w-full bg-gray-900 hover:bg-gray-800 text-white font-medium py-3 rounded-lg transition mt-2 btn-hover"
+                >
+                  {showPasswordInput ? 'Als Admin einloggen' : 'Beitreten'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      if (currentView === 'quiz') {
+        return <QuizRoom 
+          currentUser={currentUser} 
+          onSwitchToChat={() => setCurrentView('chat')}
+          onLogout={handleLogout}
+          unreadMessages={unreadMessages}
+          isAdmin={isAdmin}
+          onClearQuizResults={handleClearQuizResults}
+        />;
+      }
+
+      return (
+        <div className="min-h-screen bg-gray-100 flex items-center justify-center sm:p-4">
+          <div className="bg-white sm:rounded-xl shadow-lg w-full sm:max-w-4xl h-[100dvh] sm:h-[600px] flex flex-col border-0 sm:border border-gray-200 animate-fade-in">
+            <div className="bg-gray-900 text-white p-3 sm:p-4 sm:rounded-t-xl flex justify-between items-center animate-fade-in-down">
+              <div className="flex items-center gap-2">
+                <div>
+                  <h2 className="text-base sm:text-lg font-semibold">Chat</h2>
+                  <p className="text-xs sm:text-sm text-gray-400">
+                    {currentUser}
+                    {isAdmin && <span className="ml-2 bg-red-600 text-white text-xs px-2 py-0.5 rounded animate-pulse">ADMIN</span>}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-1 sm:gap-2 flex-wrap justify-end">
+                {isAdmin && (
+                  <button
+                    onClick={() => setShowAdminPanel(!showAdminPanel)}
+                    className={`px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition text-xs sm:text-sm ${showAdminPanel ? 'bg-red-600' : 'bg-red-600/80 hover:bg-red-600'}`}
+                  >
+                    Admin
+                  </button>
+                )}
+                <button
+                  onClick={() => setCurrentView('quiz')}
+                  className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition text-xs sm:text-sm"
+                >
+                  Quiz
+                </button>
+                <button
+                  onClick={loadMessages}
+                  className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition text-xs sm:text-sm"
+                  title="Aktualisieren"
+                >
+                  ↻
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={handleClearHistory}
+                    className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition text-xs sm:text-sm hidden sm:block"
+                  >
+                    Löschen
+                  </button>
+                )}
+                <button
+                  onClick={handleLogout}
+                  className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition text-xs sm:text-sm"
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-1 overflow-hidden relative">
+              {/* Admin Panel */}
+              {isAdmin && showAdminPanel && (
+                <div className="absolute sm:relative z-10 w-full sm:w-64 h-full border-r border-gray-200 bg-white flex flex-col panel-slide">
+                  <div className="p-3 border-b border-gray-200 flex justify-between items-center">
+                    <h3 className="font-semibold text-gray-800 text-sm">Online Benutzer ({onlineUsers.length})</h3>
+                    <button onClick={() => setShowAdminPanel(false)} className="sm:hidden text-gray-500 hover:text-gray-700 text-xl">&times;</button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto">
+                    {onlineUsers.map((user, index) => (
+                      <div key={index} className="p-3 border-b border-gray-100 hover:bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-800 flex items-center gap-2">
+                            <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                            {user.name}
+                            {user.name.toLowerCase() === ADMIN_USERNAME.toLowerCase() && (
+                              <span className="text-xs text-red-600">(Admin)</span>
+                            )}
+                          </span>
+                        </div>
+                        {user.name.toLowerCase() !== currentUser.toLowerCase() && (
+                          <div className="flex gap-1 mt-2">
+                            <button
+                              onClick={() => setSelectedUser(user.name)}
+                              className="text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded transition"
+                            >
+                              Nachricht
+                            </button>
+                            <button
+                              onClick={() => handleKickUser(user.name)}
+                              className="text-xs px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded transition"
+                            >
+                              Kick
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="p-3 border-t border-gray-200">
+                    <input
+                      type="text"
+                      value={adminMessage}
+                      onChange={(e) => setAdminMessage(e.target.value)}
+                      placeholder={selectedUser ? `Nachricht an ${selectedUser}...` : 'Broadcast...'}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-gray-500 mb-2"
+                    />
+                    <div className="flex gap-2">
+                      {selectedUser ? (
+                        <>
+                          <button
+                            onClick={() => handleSendAdminMessage(selectedUser)}
+                            className="flex-1 text-xs px-2 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded transition"
+                          >
+                            Senden
+                          </button>
+                          <button
+                            onClick={() => setSelectedUser(null)}
+                            className="text-xs px-2 py-2 bg-gray-200 hover:bg-gray-300 rounded transition"
+                          >
+                            ✕
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={handleBroadcastMessage}
+                          className="w-full text-xs px-2 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded transition"
+                        >
+                          An alle senden
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Chat Area */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 sm:space-y-4 bg-gray-50">
+                  {messages.length === 0 ? (
+                    <div className="text-center text-gray-400 mt-8 animate-fade-in">
+                      <p>Noch keine Nachrichten.</p>
+                    </div>
+                  ) : (
+                    messages.map((msg, index) => (
+                      <div key={index} className="group message-appear">
+                        {msg.type === 'system' ? (
+                          <div className="flex justify-center items-center gap-2">
+                            <span className="bg-gray-200 text-gray-600 text-xs px-3 py-1 rounded-full">
+                              {msg.text}
+                            </span>
+                            {isAdmin && msg.msgKey && (
+                              <button
+                                onClick={() => handleDeleteMessage(msg.msgKey)}
+                                className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 text-xs transition"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className={`flex ${msg.user === currentUser ? 'justify-end' : 'justify-start'}`}>
+                            <div className="flex items-start gap-2">
+                              {msg.user !== currentUser && isAdmin && msg.msgKey && (
+                                <button
+                                  onClick={() => handleDeleteMessage(msg.msgKey)}
+                                  className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 text-xs mt-2 transition"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                              <div className={`max-w-[240px] sm:max-w-xs lg:max-w-md ${msg.user === currentUser ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-800'} rounded-lg px-3 sm:px-4 py-2`}>
+                                <p className={`text-xs font-medium mb-1 ${msg.user === currentUser ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {msg.user}
+                                </p>
+                                <p className="break-words text-sm sm:text-base">{msg.text}</p>
+                                <p className={`text-xs mt-1 ${msg.user === currentUser ? 'text-gray-500' : 'text-gray-400'}`}>
+                                  {formatTime(msg.timestamp)}
+                                </p>
+                              </div>
+                              {msg.user === currentUser && isAdmin && msg.msgKey && (
+                                <button
+                                  onClick={() => handleDeleteMessage(msg.msgKey)}
+                                  className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 text-xs mt-2 transition"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                <div className="p-3 sm:p-4 border-t border-gray-200 bg-white sm:rounded-b-xl">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      onKeyDown={handleMessageKeyDown}
+                      placeholder="Nachricht..."
+                      className="flex-1 px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-500 transition text-sm sm:text-base"
+                    />
+                    <button
+                      onClick={handleSendMessage}
+                      className="bg-gray-900 hover:bg-gray-800 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg transition font-medium btn-hover text-sm sm:text-base"
+                    >
+                      Senden
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Quiz Room Component
+    function QuizRoom({ currentUser, onSwitchToChat, onLogout, unreadMessages, isAdmin, onClearQuizResults }) {
+      const [quizzes, setQuizzes] = useState([]);
+      const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
+      const [answers, setAnswers] = useState({});
+      const [showResults, setShowResults] = useState(false);
+      const [allResults, setAllResults] = useState({});
+      const [loading, setLoading] = useState(true);
+
+      // Sample quiz questions
+      const sampleQuestions = [
+        {
+          id: 1,
+          question: "Was ist die Hauptstadt von Deutschland?",
+          options: ["Berlin", "München", "Hamburg", "Frankfurt"]
+        },
+        {
+          id: 2,
+          question: "Welche Programmiersprache wird hauptsächlich für Web-Frontend verwendet?",
+          options: ["Python", "JavaScript", "Java", "C++"]
+        },
+        {
+          id: 3,
+          question: "Wie viele Kontinente gibt es?",
+          options: ["5", "6", "7", "8"]
+        },
+        {
+          id: 4,
+          question: "Welches Jahr markierte den Beginn des 21. Jahrhunderts?",
+          options: ["2000", "2001", "1999", "2002"]
+        }
+      ];
+
+      useEffect(() => {
+        loadQuizResults();
+        setQuizzes(sampleQuestions);
+        setLoading(false);
+      }, []);
+
+      // Auto-refresh results every 3 seconds
+      useEffect(() => {
+        const interval = setInterval(() => {
+          loadQuizResults();
+        }, 3000);
+        return () => clearInterval(interval);
+      }, []);
+
+      const loadQuizResults = async () => {
+        try {
+          const result = await window.storage.list('quiz:', true);
+          if (result && result.keys) {
+            const resultsPromises = result.keys.map(async (key) => {
+              const data = await window.storage.get(key, true);
+              return data ? JSON.parse(data.value) : null;
+            });
+            const loadedResults = await Promise.all(resultsPromises);
+            const validResults = loadedResults.filter(r => r !== null);
+            
+            // Organize results by question
+            const organized = {};
+            validResults.forEach(result => {
+              Object.keys(result.answers).forEach(questionId => {
+                if (!organized[questionId]) {
+                  organized[questionId] = {};
+                }
+                const answer = result.answers[questionId];
+                if (!organized[questionId][answer]) {
+                  organized[questionId][answer] = [];
+                }
+                organized[questionId][answer].push(result.user);
+              });
+            });
+            setAllResults(organized);
+          }
+        } catch (error) {
+          console.log('Keine Quiz-Ergebnisse vorhanden');
+        }
+      };
+
+      const handleAnswerSelect = (questionId, answer) => {
+        setAnswers({
+          ...answers,
+          [questionId]: answer
+        });
+      };
+
+      const handleNextQuestion = () => {
+        if (currentQuizIndex < quizzes.length - 1) {
+          setCurrentQuizIndex(currentQuizIndex + 1);
+        }
+      };
+
+      const handlePrevQuestion = () => {
+        if (currentQuizIndex > 0) {
+          setCurrentQuizIndex(currentQuizIndex - 1);
+        }
+      };
+
+      const handleSubmitQuiz = async () => {
+        const quizResult = {
+          user: currentUser,
+          answers: answers,
+          timestamp: new Date().toISOString()
+        };
+        
+        try {
+          const resultId = `quiz:${currentUser}_${Date.now()}`;
+          await window.storage.set(resultId, JSON.stringify(quizResult), true);
+          await loadQuizResults();
+          setShowResults(true);
+        } catch (error) {
+          console.error('Fehler beim Speichern der Quiz-Ergebnisse:', error);
+        }
+      };
+
+      const calculatePercentage = (count, total) => {
+        return total > 0 ? Math.round((count / total) * 100) : 0;
+      };
+
+      const getBarColor = (index) => {
+        const colors = ['bg-gray-700', 'bg-gray-600', 'bg-gray-500', 'bg-gray-400'];
+        return colors[index % colors.length];
+      };
+
+      if (loading) {
+        return (
+          <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+            <div className="text-gray-600 text-xl animate-pulse">Lädt...</div>
+          </div>
+        );
+      }
+
+      if (showResults) {
+        return (
+          <div className="min-h-screen bg-gray-100 flex items-center justify-center sm:p-4">
+            <div className="bg-white sm:rounded-xl shadow-lg w-full sm:max-w-4xl h-[100dvh] sm:h-auto sm:max-h-[90vh] flex flex-col border-0 sm:border border-gray-200 animate-fade-in">
+              <div className="bg-gray-900 text-white p-3 sm:p-4 sm:rounded-t-xl flex justify-between items-center">
+                <div>
+                  <h2 className="text-base sm:text-lg font-semibold">Quiz Ergebnisse</h2>
+                  <p className="text-xs sm:text-sm text-gray-400">Alle Antworten</p>
+                </div>
+                <div className="flex gap-1 sm:gap-2 flex-wrap justify-end">
+                  <button
+                    onClick={onSwitchToChat}
+                    className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition text-xs sm:text-sm relative"
+                  >
+                    Chat
+                    {unreadMessages > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                        {unreadMessages}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowResults(false);
+                      setAnswers({});
+                      setCurrentQuizIndex(0);
+                    }}
+                    className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition text-xs sm:text-sm"
+                  >
+                    Neu
+                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={onClearQuizResults}
+                      className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-red-600/80 hover:bg-red-600 transition text-xs sm:text-sm"
+                    >
+                      Löschen
+                    </button>
+                  )}
+                  <button
+                    onClick={onLogout}
+                    className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition text-xs sm:text-sm"
+                  >
+                    Logout
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50 space-y-4 sm:space-y-6">
+                {quizzes.map((quiz, index) => {
+                  const questionResults = allResults[quiz.id] || {};
+                  const totalVotes = Object.values(questionResults).reduce((sum, users) => sum + users.length, 0);
+
+                  return (
+                    <div key={quiz.id} className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6 card-appear" style={{ animationDelay: `${index * 0.1}s` }}>
+                      <h3 className="text-sm sm:text-base font-semibold text-gray-800 mb-3 sm:mb-4">
+                        {index + 1}. {quiz.question}
+                      </h3>
+                      <div className="space-y-3">
+                        {quiz.options.map((option, optIndex) => {
+                          const voters = questionResults[option] || [];
+                          const voteCount = voters.length;
+                          const percentage = calculatePercentage(voteCount, totalVotes);
+                          const isUserAnswer = answers[quiz.id] === option;
+
+                          return (
+                            <div key={optIndex} className="space-y-1">
+                              <div className="flex items-center justify-between text-xs sm:text-sm">
+                                <span className={`${isUserAnswer ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
+                                  {option} {isUserAnswer && '•'}
+                                </span>
+                                <span className="text-gray-500">
+                                  {voteCount} ({percentage}%)
+                                </span>
+                              </div>
+                              <div className="w-full bg-gray-200 rounded h-5 overflow-hidden">
+                                <div
+                                  className={`${getBarColor(optIndex)} h-full rounded transition-all duration-500 flex items-center px-2`}
+                                  style={{ width: `${Math.max(percentage, 0)}%` }}
+                                >
+                                  {percentage > 10 && (
+                                    <span className="text-xs text-white">{percentage}%</span>
+                                  )}
+                                </div>
+                              </div>
+                              {voters.length > 0 && (
+                                <div className="text-xs text-gray-500">
+                                  {voters.join(', ')}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {Object.keys(allResults).length === 0 && (
+                  <div className="text-center text-gray-400 mt-8">
+                    <p>Noch keine Ergebnisse.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      const currentQuiz = quizzes[currentQuizIndex];
+      const allAnswered = Object.keys(answers).length === quizzes.length;
+      const progress = Math.round((Object.keys(answers).length / quizzes.length) * 100);
+
+      return (
+        <div className="min-h-screen bg-gray-100 flex items-center justify-center sm:p-4">
+          <div className="bg-white sm:rounded-xl shadow-lg w-full sm:max-w-4xl h-[100dvh] sm:h-[600px] flex flex-col border-0 sm:border border-gray-200 animate-fade-in">
+            <div className="bg-gray-900 text-white p-3 sm:p-4 sm:rounded-t-xl flex justify-between items-center animate-fade-in-down">
+              <div>
+                <h2 className="text-base sm:text-lg font-semibold">Quiz</h2>
+                <p className="text-xs sm:text-sm text-gray-400">{currentUser}</p>
+              </div>
+              <div className="flex gap-1 sm:gap-2">
+                <button
+                  onClick={onSwitchToChat}
+                  className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition text-xs sm:text-sm relative"
+                >
+                  Chat
+                  {unreadMessages > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                      {unreadMessages}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={onLogout}
+                  className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition text-xs sm:text-sm"
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 p-4 sm:p-6 bg-gray-50 flex flex-col overflow-hidden">
+              {/* Progress Bar */}
+              <div className="mb-3 sm:mb-4">
+                <div className="flex justify-between text-xs sm:text-sm text-gray-500 mb-1">
+                  <span>Fortschritt</span>
+                  <span>{Object.keys(answers).length} / {quizzes.length}</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded h-2 overflow-hidden">
+                  <div
+                    className="bg-gray-700 h-full rounded transition-all duration-500"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Question Card */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6 flex-1 flex flex-col overflow-hidden animate-scale-in" key={currentQuizIndex}>
+                <div className="mb-1 text-xs sm:text-sm text-gray-500">
+                  Frage {currentQuizIndex + 1} von {quizzes.length}
+                </div>
+                <h3 className="text-base sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4">
+                  {currentQuiz.question}
+                </h3>
+
+                <div className="space-y-2 flex-1 overflow-y-auto">
+                  {currentQuiz.options.map((option, index) => {
+                    const isSelected = answers[currentQuiz.id] === option;
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => handleAnswerSelect(currentQuiz.id, option)}
+                        className={`w-full text-left p-3 rounded-lg border transition-all btn-hover ${
+                          isSelected
+                            ? 'border-gray-900 bg-gray-50'
+                            : 'border-gray-200 bg-white hover:border-gray-400'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? 'border-gray-900 bg-gray-900' : 'border-gray-300'
+                          }`}>
+                            {isSelected && (
+                              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                          <span className={`text-sm sm:text-base ${isSelected ? 'text-gray-900 font-medium' : 'text-gray-700'}`}>
+                            {option}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Navigation Buttons */}
+                <div className="flex justify-between items-center mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200">
+                  <button
+                    onClick={handlePrevQuestion}
+                    disabled={currentQuizIndex === 0}
+                    className={`px-3 sm:px-4 py-2 rounded-lg transition text-sm sm:text-base ${
+                      currentQuizIndex === 0
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300 btn-hover'
+                    }`}
+                  >
+                    ← Zurück
+                  </button>
+
+                  <div className="flex gap-2">
+                    {currentQuizIndex < quizzes.length - 1 ? (
+                      <button
+                        onClick={handleNextQuestion}
+                        className="px-4 sm:px-6 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-lg transition btn-hover text-sm sm:text-base"
+                      >
+                        Weiter →
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleSubmitQuiz}
+                        disabled={!allAnswered}
+                        className={`px-4 sm:px-6 py-2 rounded-lg transition text-sm sm:text-base ${
+                          allAnswered
+                            ? 'bg-gray-900 hover:bg-gray-800 text-white btn-hover'
+                            : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        }`}
+                      >
+                        Beenden
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ChatroomApp />);
+  </script>
+</body>
+</html>
